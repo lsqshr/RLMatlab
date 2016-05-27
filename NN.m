@@ -30,17 +30,19 @@ classdef NN < matlab.mixin.SetGet
 
             obj.parafromvec(theta);
             obj.gradfromvec(gtheta);
-            obj.actfun = opt.act; % Transfer activation functions from strings: tanh, sigmoid, linear, etc
+            obj.actfun = opt.actfun; % Transfer activation functions from strings: tanh, sigmoid, linear, etc
 		end
 
 
-		function obj = forward(obj, x)
+		function [obj, out] = forward(obj, x)
 			ncase = size(x, 1);
 			obj.a{1} = x;
 			% Forward the network layer by layer; input considered as activation as well 
 			for i = 1 : obj.opt.nlayer - 1
 				obj.a{i + 1} = transpose(obj.actfun{i}.forward(obj.W{i} * obj.a{i}' + repmat(obj.b{i}, 1, ncase))); % hidden activation
 			end
+
+			out = obj.a{obj.opt.nlayer};
 		end
 
 
