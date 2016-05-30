@@ -30,7 +30,7 @@ classdef NN < matlab.mixin.SetGet
 
             obj.parafromvec(theta);
             obj.gradfromvec(gtheta);
-            obj.actfun = opt.actfun; % Transfer activation functions from strings: tanh, sigmoid, linear, etc
+            obj.actfun = opt.actfun; 
 		end
 
 

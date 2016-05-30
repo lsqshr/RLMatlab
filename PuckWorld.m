@@ -6,6 +6,8 @@ classdef PuckWorld < matlab.mixin.SetGet
 		rad = 0.05
 		t = 0
         agent
+        showevery
+        render 
 	end
 
 
@@ -21,11 +23,18 @@ classdef PuckWorld < matlab.mixin.SetGet
 	    	obj.red.x = rand();
 	    	obj.red.y = rand();
 	    	obj.red.badrad = 0.25;
+	    	obj.showevery = 1;
+	    	obj.render.tderr = []; 
+	    	obj.render.tr = [];
 
+	    	p.alpha = 0.01;
 	    	p.gamma = 0.9;
 	    	p.clamp = 1;
 	    	p.experience_size = 5000;
+	    	p.experience_add_every = 10;
+	    	p.learning_steps_per_iteration = 30;
 	    	p.nnsz = [obj.get_num_states() 100 obj.get_num_actions()];
+	    	p.env = obj;
             obj.agent = DQNAgent(p);
 	    end
 
@@ -110,7 +119,7 @@ classdef PuckWorld < matlab.mixin.SetGet
 
 			% Compute distances
 			greendist = norm([obj.green.x - obj.puck.x, obj.green.y - obj.puck.y]);
-			red2puck = [obj.red.x - obj.puck.x, obj.red.y - obj.puck.y]; % Displacement
+			red2puck = [obj.puck.x - obj.red.x, obj.puck.y - obj.red.y]; % Displacement
 			red2puckdist = norm(red2puck); % Distance
 			red2pucknorm = red2puck / red2puckdist; % Normalised dispacement vector
 
@@ -119,18 +128,41 @@ classdef PuckWorld < matlab.mixin.SetGet
 			obj.red.y = obj.red.y + 0.001 * red2pucknorm(2);
 
 			% Compute reward (one-liner! Don't burn me!)
-			r = -greendist + double(red2puckdist < obj.badrad) * (2 * (red2puckdist - obj.badrad) / obj.badrad);
-			s = get_state();
+			r = -greendist + double(red2puckdist < obj.red.badrad) * (2 * (red2puckdist - obj.red.badrad) / obj.red.badrad);
+			s = obj.get_state();
 		end
 
 		function obj = start(obj)
+			obj.render.f = figure();
 		    while true
+		    	% Get Keyboard input to change showspeed
+                k = get(gcf, 'CurrentCharacter');
+                if k~='@'
+                    set(gcf, 'CurrentCharacter', '@');
+                    if double(k) == 30
+                        obj.showevery = obj.showevery * 2; 
+                    elseif double(k) == 31
+                        obj.showevery = max([obj.showevery/2, 1]);
+                    elseif strcmp(k, 'f')
+                        obj.showevery = 256;
+                    elseif strcmp(k, 'q')
+                        close(1);
+                        break;
+                    elseif strcmp(k, 'r')
+                        obj.showevery = 2; 
+                    else
+                    end
+                else
+                end
+
+		    	fprintf('step:%d\n', obj.t);
 		    	s = obj.get_state();
 		    	[~, a] = obj.agent.act(s);
 		    	[s, r] = obj.sampleNextState(a);
 		    	obj.agent.learn(r);
-
-		    	obj.t = obj.t + 1;
+		    	obj.puck.action = a;
+		    	obj.render.tderr = [obj.render.tderr, abs(obj.agent.tderr)];
+		    	obj.render.tr = [obj.render.tr, r];
 
 		    	if rem(obj.t, obj.showevery) == 0
 		    		obj.draw();
@@ -141,8 +173,16 @@ classdef PuckWorld < matlab.mixin.SetGet
 
 	methods (Access = private)
 	    function obj = draw(obj)
+	    	clf(obj.render.f)
+	    	figure(obj.render.f)
 	    	subplot(2, 2, 1);
 	    	obj.drawEnv();
+
+            % Draw Error 
+            subplot(2, 2, 2)
+            axis auto
+            plot(obj.render.tderr(max([1; obj.t-1000]): end))
+            title('TD Error')
 
             % % Draw Temporary Rewards
             % subplot(2, 2, 2)
@@ -150,19 +190,13 @@ classdef PuckWorld < matlab.mixin.SetGet
             % plot(obj.avgQ(1:obj.stepidx));
             % title('AVG Q')
 
-            % % Draw Accumulated Rewards
-            % subplot(2, 2, 3)
-            % axis auto
-            % % plot(obj.S(1 : obj.tctr))
-            % % title('Accumulated Rewards')
-            % plot(obj.S(1:obj.stepidx));
-            % title('Temporary Rewards')
+            % Draw Accumulated Rewards
+            subplot(2, 2, 3)
+            axis auto
+            plot(obj.render.tr(max([1; obj.t-1000]): end));
+            title('Temporary Rewards')
 
-            % % Draw Error 
-            % subplot(2, 2, 4)
-            % axis auto
-            % plot(obj.ERR(1 : obj.tctr))
-            % title('TD Error')
+            drawnow
 	    end
 
 
@@ -176,19 +210,19 @@ classdef PuckWorld < matlab.mixin.SetGet
             % Draw red
             viscircles([obj.red.x, obj.red.y], 0.01, 'EdgeColor', 'black');
 			red2puckdist = norm([obj.red.x - obj.puck.x, obj.red.y - obj.puck.y]); % Distance
-            if red2puckdist < obj.badrad
-                boundcolor = [ 1 - red2puckdist/ obj.badrad, red2puckdist/ obj.badrad, 0];
+            if red2puckdist < obj.red.badrad
+                boundcolor = [ 1 - red2puckdist/ obj.red.badrad, red2puckdist/ obj.red.badrad, 0];
             else
                 boundcolor = [0, 1, 0];
             end
-            viscircles([obj.red.x, obj.red.y], obj.badrad, 'EdgeColor', boundcolor);
+            viscircles([obj.red.x, obj.red.y], obj.red.badrad, 'EdgeColor', boundcolor);
 
             % Draw Green
             viscircles([obj.green.x, obj.green.y], 0.01, 'EdgeColor', 'g');
 
             % Draw Puck
             viscircles([obj.puck.x, obj.puck.y], obj.rad, 'EdgeColor', 'b');
-            switch obj.A
+            switch obj.puck.action
                 case 1
                     line([obj.puck.x, obj.puck.x], [obj.puck.y, obj.puck.y + 2 * obj.rad]);
                 case 2

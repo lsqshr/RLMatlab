@@ -7,10 +7,11 @@ classdef DQNAgent < matlab.mixin.SetGet
         e % The current experience
         nn % its network
         tderr
-        eps
+        eps = 0.2
 	end
 
-	methods
+	methods (Access = public)
+
 	    function obj = DQNAgent(p)
 	    	obj.p = p;
 	    	obj.reset();
@@ -19,17 +20,18 @@ classdef DQNAgent < matlab.mixin.SetGet
 
 	    function obj = reset(obj)
 	    	opt.sz = obj.p.nnsz;
-	    	opt.actfun = {sigmoid(), lin()};
+	    	opt.actfun = {tanh_mrl(), lin_mrl()};
+	    	opt.alpha = obj.p.alpha;
 	    	obj.nn = NN(opt);
 	    	obj.exppool = cell(obj.p.experience_size, 1);
-	    	obj.expi = 1;
+	    	obj.expi = 0;
 	    	obj.t = 1;
 
-            % obj.e.r0 = ;
-            % obj.e.s0 = -1;
-            % obj.e.s1 = -1;
-            % obj.e.a0 = -1;
-            % obj.e.a1 = -1;
+            obj.e.r0 = NaN;
+            obj.e.s0 = NaN;
+            obj.e.s1 = NaN;
+            obj.e.a0 = NaN;
+            obj.e.a1 = NaN;
             obj.tderr = 0; % For visualisation only
 	    end
         
@@ -46,7 +48,7 @@ classdef DQNAgent < matlab.mixin.SetGet
 
 	    function [obj, a] = act(obj, s)
             if (rand() < obj.eps)
-            	a = randi(obj.nn.na); % This might be the only difference I used to have between the Karpathy js version
+            	a = randi(obj.p.env.get_num_actions()); % This might be the only difference I used to have between the Karpathy RL.JS version
             else
             	[~, out] = obj.nn.forward(s);
             	[~, a] = max(out(:));
@@ -55,21 +57,22 @@ classdef DQNAgent < matlab.mixin.SetGet
             % Shift state memory
             obj.e.s0 = obj.e.s1;
             obj.e.a0 = obj.e.a1;
-            obj.s1 = s;
-            obj.a1 = a;
+            obj.e.s1 = s;
+            obj.e.a1 = a;
 	    end
 
 	    function obj = learn(obj, r1)
-	    	if (obj.e.r0 ~= null) && obj.nn.alpha > 0
+
+	    	if ~isnan(obj.e.r0) && obj.nn.opt.alpha > 0
 	    		% Learn from this tuple to get a sense of how "surprising" it is to the agent
-	    		[obj, tderr] = obj.learnFromTuple(obj.e);
-	    		obj.ederr = tderr;
+	    		[obj, tderr] = obj.learn_from_tuple(obj.e);
+	    		obj.tderr = tderr;
 
 	    		% Decide whether to keep this experience in the replay
 	    		if rem(obj.t, obj.p.experience_add_every) == 0
-	    			obj.exppool{obj.expi} = obj.e;
 	    			obj.expi = obj.expi + 1;
-	    			if obj.expi > obj.experience_size
+	    			obj.exppool{obj.expi} = obj.e;
+	    			if obj.expi > obj.p.experience_size
 	    				obj.expi = 0;
 	    			end
 	    		end
@@ -77,38 +80,41 @@ classdef DQNAgent < matlab.mixin.SetGet
 	    		obj.t = obj.t + 1; % Increment timer
 
 	    		% Sample some additional experience from replay memory and learn from it
-	    		for k = 1 : obj.learning_steps_per_iteration
-	    			ri = randi(min([obj.expi, numel(obj.exppool)]));
-	    		    obj.learn_from_tuple(obj.exppool{ri});
-	    		end
+	    		if obj.expi > 1
+		    		for k = 1 : obj.p.learning_steps_per_iteration
+
+		    			ri = randi(min([obj.expi, numel(obj.exppool)]));
+		    		    obj.learn_from_tuple(obj.exppool{ri});
+		    		end
+		    	end
 	    	end
 	    	obj.e.r0 = r1;
 	    end
 
-	    function [obj, tderr] = learnFromTuple(obj, e)
+	    function [obj, tderr] = learn_from_tuple(obj, e)
 	    	% Want: Q(s,a) = r + gamma * max_a' Q(s',a')
 
 	    	% Compute the target Q Value
-	    	out = obj.nn.forward(e.s1);
+	    	[~, out] = obj.nn.forward(e.s1);
 	    	tdtarget = e.r0 + obj.p.gamma * max(out(:));
 
 	    	% Predict
-	    	out = obj.nn.forward(e.s0)
+	    	[~, out] = obj.nn.forward(e.s0);
 	    	tderr = out(e.a0) - tdtarget;
 	    	if abs(tderr) > obj.p.clamp
 	    		if tderr > obj.p.clamp
-                    tderr = clamp;
+                    tderr = obj.p.clamp;
 	    		end
 
 	    		if tderr < -obj.p.clamp
-	    			tderr = -clamp;
+	    			tderr = - obj.p.clamp;
 	    		end
 	    	end
 
 	    	% nn.dW{2}(e.a0) = tderr;
-	    	fullerr = zeros(obj.env.get_num_actions(), 1);
+	    	fullerr = zeros(1, obj.p.env.get_num_actions());
 	    	fullerr(e.a0) = tderr;
-	    	obj.nn.backward(tderr);
+	    	obj.nn.backward(fullerr);
 
 	    	% Update Net
 	    	obj.nn.update();
